@@ -3,6 +3,7 @@
 Created on Thu Aug 23 13:35:16 2018
 
 @author: deban.daniel
+teste do git
 """
 import random
 import numpy
