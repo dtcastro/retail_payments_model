@@ -1,90 +1,128 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Aug 23 13:35:16 2018
+- Nessa versão, a ideia é testar se a concessão de desconto pelo lojista pode 
+fazer com que o consumidor escolha um instrumento diferente do seu preferido.
+- Instruments:
+    - Não tem classe instrumento
+    - Apenas dinheiro e cartão de débito
+- Merchants:
+    - Vendem um mesmo produto pelo mesmo preço
+    - A única diferença é a concessão ou não de desconto
+    - Concorrência perfeita
+    - Quantidade de produtos que cada um vende é infinita
+    - Têm instrumento preferido (atributos que levam a que determinado 
+    instrumento seja o preferido não são levados em conta nesse momento)
+    - Todos aceitam dinheiro; alguns aceitam débito também
+    - Os que preferem dinheiro podem optar por dar desconto para que o 
+    consumidor pague com esse instrumento
+    - Os que preferem débito não dão desconto
+    - No fim do período, contam quantas vendas perderam; se perderam mais que 
+    n vendas, podem passar a aceitar débito ou a dar desconto
+- Consumers:
+    - Têm instrumento preferido (atributos não levados em conta)
+    - Compram do merchant mais próximo
+- IAP:
+    - Decide o preço cobrado do lojista
+    - Não cobra do consumidor
 
-@author: deban.daniel
-teste do git
+@author: Daniel
+
 """
 import random
 import numpy
 from mesa import Agent, Model
+#from mesa.time import BaseScheduler
 from mesa.time import RandomActivation
+#from mesa.time import StagedActivation
+from mesa.datacollection import DataCollector
+
+CASH = 0
+DEBIT = 1
 
 class Merchant(Agent):
     """An agent with fixed initial wealth."""
-    def __init__(self, unique_id, produtos, preco, model):
+    def __init__(self, unique_id, model, favorite_instrument, discounts):
         super().__init__(unique_id, model)
-        self.recursos = 0
-        self.produtos = produtos
-        self.preco = preco
+        self.sales = 0
+        self.lost_sales = 0
+        self.favorite_instrument = favorite_instrument
+        self.discounts = discounts
         
-class Portador(Agent):
+    def step1(self):
+        print('Merchant ' + str(self.unique_id) + ' step1')    
+
+    def step2(self):
+        print('Merchant ' + str(self.unique_id) + ' step2')  
+        
+class Consumer(Agent):
     """An agent with fixed initial wealth."""
-    def __init__(self, unique_id, recursos, model):
+    def __init__(self, unique_id, model, favorite_instrument, discounts):
         super().__init__(unique_id, model)
-        self.recursos = recursos
+        self.favorite_instrument = favorite_instrument
+        self.discounts = discounts
         
     def step(self):
-        if self.recursos == 0:
-            return
+        print('Consumer ' + str(self.unique_id) + str(self.favorite_instrument))
         # chooses a merchant 
-        lojistas = [obj for obj in self.model.schedule.agents if isinstance(obj, Merchant)]
-        lojista = random.choice(lojistas)
-        print('lojista ' + str(lojista.unique_id))
+        merchants = [obj for obj in self.model.schedule.agents if isinstance(obj, Merchant)]
+        merchant = random.choice(merchants)
+        #print('lojista ' + str(merchant.unique_id))
         
-        buy = numpy.random.binomial(1, .5, 1) # n, p, number of trials 
-        if buy:
-            print('buy')
-            if lojista.preco <= self.recursos and lojista.produtos > 0:
-                lojista.recursos += lojista.preco
-                lojista.produtos -= 1 # pode não ser necessario; mlehor assumir produtos ilimitados
-                self.recursos -= lojista.preco
+        if merchant.favorite_instrument == self.favorite_instrument:
+            #print('buy')
+            merchant.sales += 1
         else:
-            print('dont buy')
-        """idade
-        "renda"
-        "escolaridade"
-        "sexo"
-        "dinheiro no bolso
-        "limite no cartão
-        "saldo em conta
-        "instrumentos = debito, credito, dinheiro, mas dependendo da renda, escolaridade, sexo, etc."
-    "definir funcao compra
-    "definir funcao escolhe instrumento
+            if merchant.favorite_instrument == CASH and self.favorite_instrument == DEBIT:
+                if merchant.discounts and self.discounts:
+                    merchant.sales += 1
+                else:
+                    merchant.lost_sales += 1
+            else: # merchant.favorite_instrument == DEBIT and self.favorite_instrument == CASH
+                merchant.sales += 1
+                
+    # preciso de um step 2 para o aprendizado; se lost_sales  > x; discounts
+    
+    def step1(self):
+        print('Consumer ' + str(self.unique_id) + ' step1')    
         
-" com base em idade, renda, escolaridade e sexo, sorteio quais instrumentos tem
-" aí vou sorteando uma compra por passo, assumindo que as compras sempre são feitas; ou pode ser número de compras por dia tb
-" cada compra é sorteada com um valor
-" aí tem que ter uma função escolha do instrumento, com base no tipo do bem, 
-" instrumento tem que ter conveniencia (dinheiro é o mais conveniente ou tem nota para conveniencia x); aí a função tem que escolher o instrumento com base no valor da compra e no tipo de coisa que está sendo comprado e na loja
-" para compras pequenas, o peso maior é na conveniencia; para compras grandes, na segurança e benefícios
-" se eu coloco um instrumento mais conveniente que dinheiro, como fica a escolha?
-" o custo tem que ser a média da anuidade menos benefícios; valores absolutos? relativos por compra?
-" escolhe se vai entrar no limite do cheque especial, se tem limite do cartão para fazer a compra, etc.
-" pode ser necessário definir classe instrumento, mas é melhor deixar como parametro
-"""
+    def step2(self):
+        print('Consumer ' + str(self.unique_id) + ' step2')    
         
 class RetailPaymentsModel(Model):
     """A model with some number of agents."""
     def __init__(self, M, N):
-        self.num_portadores = M
-        self.num_lojistas = N
+        self.num_consumers = M
+        self.num_merchants = N
         self.schedule = RandomActivation(self)
-        # Create clients
-        for i in range(self.num_portadores):
-            renda = 10
-            p = Portador(i, renda, self)
-            self.schedule.add(p)
+        #self.schedule = BaseScheduler(self)
+        #self.schedule = StagedActivation(self, ["step1", "step2"])
+        
+        unique_id = 0
+        
+        # Create consumers
+        for i in range(self.num_consumers):
+            favorite_instrument = numpy.random.binomial(1, .5, 1) # n, p, number of trials
+            discounts = numpy.random.binomial(1, .5, 1) # n, p, number of trials
+            consumers = Consumer(unique_id, self, favorite_instrument, discounts)
+            unique_id += 1
+            self.schedule.add(consumers)
             
         # Create merchants
-        for i in range(self.num_lojistas):
-            produtos = 20
-            preco = 2
-            l = Merchant(i, produtos, preco, self)
-            self.schedule.add(l)
+        for i in range(self.num_merchants):
+            favorite_instrument = numpy.random.binomial(1, .25, 1) # n, p, number of trials => 75% prefer CASH (0)
+            discounts = numpy.random.binomial(1, .9, 1) # n, p, number of trials => 90% do not discount
+            merchants = Merchant(unique_id, self, favorite_instrument, discounts)
+            unique_id += 1
+            self.schedule.add(merchants)
+            
+        self.datacollector = DataCollector(
+            agent_reporters={"Lost sales": lambda a: getattr(a, 'lost_sales', None),
+                             "Sales": lambda a: getattr(a, 'sales', None)})
+    
+        self.datacollector.collect(self)
 
     def step(self):
         '''Advance the model by one step.'''
-        print('step')
         self.schedule.step()
+        self.datacollector.collect(self)
         
