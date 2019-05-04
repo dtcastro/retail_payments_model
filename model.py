@@ -32,8 +32,8 @@ import random
 import numpy
 from mesa import Agent, Model
 #from mesa.time import BaseScheduler
-from mesa.time import RandomActivation
-#from mesa.time import StagedActivation
+#from mesa.time import RandomActivation
+from mesa.time import StagedActivation
 from mesa.datacollection import DataCollector
 
 CASH = 0
@@ -49,10 +49,14 @@ class Merchant(Agent):
         self.discounts = discounts
         
     def step1(self):
-        print('Merchant ' + str(self.unique_id) + ' step1')    
+        print('Merchant ' + str(self.unique_id) + ' step1')
+        print('Discounts: ' + str(self.discounts))
 
     def step2(self):
-        print('Merchant ' + str(self.unique_id) + ' step2')  
+        print('Merchant ' + str(self.unique_id) + ' step2')
+        self.lost_sales_ratio = self.lost_sales/(self.lost_sales + self.sales)
+        if self.lost_sales_ratio > 0.5:
+            self.discounts = 1
         
 class Consumer(Agent):
     """An agent with fixed initial wealth."""
@@ -61,8 +65,8 @@ class Consumer(Agent):
         self.favorite_instrument = favorite_instrument
         self.discounts = discounts
         
-    def step(self):
-        print('Consumer ' + str(self.unique_id) + str(self.favorite_instrument))
+    def step1(self):
+        print('Consumer ' + str(self.unique_id) + str(self.favorite_instrument) + 'step1')
         # chooses a merchant 
         merchants = [obj for obj in self.model.schedule.agents if isinstance(obj, Merchant)]
         merchant = random.choice(merchants)
@@ -82,27 +86,26 @@ class Consumer(Agent):
                 
     # preciso de um step 2 para o aprendizado; se lost_sales  > x; discounts
     
-    def step1(self):
-        print('Consumer ' + str(self.unique_id) + ' step1')    
-        
     def step2(self):
         print('Consumer ' + str(self.unique_id) + ' step2')    
         
 class RetailPaymentsModel(Model):
     """A model with some number of agents."""
-    def __init__(self, M, N):
-        self.num_consumers = M
-        self.num_merchants = N
-        self.schedule = RandomActivation(self)
+    def __init__(self, num_consumers, num_merchants, consumer_discount_prob):
+        self.running = True
+        self.num_consumers = num_consumers
+        self.num_merchants = num_merchants
+        #self.schedule = RandomActivation(self)
         #self.schedule = BaseScheduler(self)
-        #self.schedule = StagedActivation(self, ["step1", "step2"])
+        self.schedule = StagedActivation(self, ["step1", "step2"])
+        #total_sales = 0
         
         unique_id = 0
         
         # Create consumers
         for i in range(self.num_consumers):
             favorite_instrument = numpy.random.binomial(1, .5, 1) # n, p, number of trials
-            discounts = numpy.random.binomial(1, .5, 1) # n, p, number of trials
+            discounts = numpy.random.binomial(1, consumer_discount_prob, 1) # n, p, number of trials
             consumers = Consumer(unique_id, self, favorite_instrument, discounts)
             unique_id += 1
             self.schedule.add(consumers)
@@ -117,7 +120,8 @@ class RetailPaymentsModel(Model):
             
         self.datacollector = DataCollector(
             agent_reporters={"Lost sales": lambda a: getattr(a, 'lost_sales', None),
-                             "Sales": lambda a: getattr(a, 'sales', None)})
+                             "Sales": lambda a: getattr(a, 'sales', None),
+                             "Lost sales ratio": lambda a: getattr(a, 'lost_sales_ratio', None)})
     
         self.datacollector.collect(self)
 
