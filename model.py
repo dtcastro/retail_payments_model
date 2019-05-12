@@ -38,34 +38,46 @@ from mesa.datacollection import DataCollector
 
 CASH = 0
 DEBIT = 1
+ratio_threshold_for_discounting = 0.25
 
 class Merchant(Agent):
-    """An agent with fixed initial wealth."""
+    """A Merchant
+    attributes: 
+        favorite_instrument
+        discounts: determines if the merchant does or not offer discount based
+            on the instrument
+        sales: number of sales made
+        lost_sales: number of sales lost because the merchant does not accept
+            the favorite instrument of the consumer
+    """
     def __init__(self, unique_id, model, favorite_instrument, discounts):
         super().__init__(unique_id, model)
         self.sales = 0
         self.lost_sales = 0
         self.favorite_instrument = favorite_instrument
         self.discounts = discounts
+        self.lost_sales_ratio = 0
         
-    def step1(self):
+    def period1(self):
         print('Merchant ' + str(self.unique_id) + ' step1')
         print('Discounts: ' + str(self.discounts))
 
-    def step2(self):
+    def period2(self):
         print('Merchant ' + str(self.unique_id) + ' step2')
         self.lost_sales_ratio = self.lost_sales/(self.lost_sales + self.sales)
-        if self.lost_sales_ratio > 0.5:
+        if self.lost_sales_ratio > ratio_threshold_for_discounting:
             self.discounts = 1
         
 class Consumer(Agent):
-    """An agent with fixed initial wealth."""
+    """A Consumer  
+    attributes: favorite instrument, changes instrument because of a discount
+    """
     def __init__(self, unique_id, model, favorite_instrument, discounts):
         super().__init__(unique_id, model)
         self.favorite_instrument = favorite_instrument
         self.discounts = discounts
         
-    def step1(self):
+    def period1(self):
         print('Consumer ' + str(self.unique_id) + str(self.favorite_instrument) + 'step1')
         # chooses a merchant 
         merchants = [obj for obj in self.model.schedule.agents if isinstance(obj, Merchant)]
@@ -86,9 +98,37 @@ class Consumer(Agent):
                 
     # preciso de um step 2 para o aprendizado; se lost_sales  > x; discounts
     
-    def step2(self):
+    def period2(self):
         print('Consumer ' + str(self.unique_id) + ' step2')    
         
+def get_total_sales(model):
+    """total number of sales"""
+    total_sales = sum(obj.sales for obj in model.schedule.agents if isinstance(obj, Merchant))
+    #rich_agents = [a for a in model.schedule.agents if a.savings > model.rich_threshold]
+    return total_sales
+
+def get_total_lost_sales(model):
+    """total number of sales"""
+    total_lost_sales = sum(obj.lost_sales for obj in model.schedule.agents if isinstance(obj, Merchant))
+    #rich_agents = [a for a in model.schedule.agents if a.savings > model.rich_threshold]
+    return total_lost_sales
+
+def get_number_discounting_merchants(model):
+    """number of discounting merchants"""
+    discounting_merchants = sum([obj.discounts for obj in model.schedule.agents if isinstance(obj, Merchant)])
+    return discounting_merchants
+
+def get_number_merchants_above_ratio(model):
+    """number of discounting merchants"""
+    merchants_above_ratio = [obj for obj in model.schedule.agents 
+                             if isinstance(obj, Merchant) and obj.lost_sales_ratio > ratio_threshold_for_discounting]
+    return len(merchants_above_ratio)
+
+def get_number_discounting_consumers(model):
+    """number of discounting consumers"""
+    discounting_consumers = sum([obj.discounts for obj in model.schedule.agents if isinstance(obj, Consumer)])
+    return discounting_consumers
+
 class RetailPaymentsModel(Model):
     """A model with some number of agents."""
     def __init__(self, num_consumers, num_merchants, consumer_discount_prob):
@@ -97,7 +137,7 @@ class RetailPaymentsModel(Model):
         self.num_merchants = num_merchants
         #self.schedule = RandomActivation(self)
         #self.schedule = BaseScheduler(self)
-        self.schedule = StagedActivation(self, ["step1", "step2"])
+        self.schedule = StagedActivation(self, ["period1", "period2"])
         #total_sales = 0
         
         unique_id = 0
@@ -113,12 +153,17 @@ class RetailPaymentsModel(Model):
         # Create merchants
         for i in range(self.num_merchants):
             favorite_instrument = numpy.random.binomial(1, .25, 1) # n, p, number of trials => 75% prefer CASH (0)
-            discounts = numpy.random.binomial(1, .9, 1) # n, p, number of trials => 90% do not discount
+            discounts = numpy.random.binomial(1, .25, 1) # n, p, number of trials => 90% do not discount
             merchants = Merchant(unique_id, self, favorite_instrument, discounts)
             unique_id += 1
             self.schedule.add(merchants)
             
         self.datacollector = DataCollector(
+            model_reporters={"Total sale": get_total_sales,
+                             "Total lost sales": get_total_lost_sales,
+                             "Number of discounting merchants": get_number_discounting_merchants,
+                             "Number of discounting consumers": get_number_discounting_consumers,
+                             "Number of merchants above ratio": get_number_merchants_above_ratio},
             agent_reporters={"Lost sales": lambda a: getattr(a, 'lost_sales', None),
                              "Sales": lambda a: getattr(a, 'sales', None),
                              "Lost sales ratio": lambda a: getattr(a, 'lost_sales_ratio', None)})
